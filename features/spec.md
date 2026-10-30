@@ -72,7 +72,8 @@ Players can create and join separate game rooms.
 - Each room receives a unique identifier.
 - Each room has its own shareable URL.
 - The room creator becomes the first player and occupies the first seat.
-- The creator can configure available game settings.
+- The creator can configure available game settings (the MVP uses fixed 2–4
+  player settings).
 
 Example:
 
@@ -99,7 +100,7 @@ A room can be in one of the following states:
 
 ## 5. Multiplayer Gameplay
 
-The game follows an adapted version of Love Letter.
+The game follows the adapted Love Letter rules in [rules](rules.md).
 
 ### Player Management
 
@@ -288,7 +289,7 @@ Features to consider after the initial release:
 
 - Custom room names.
 - Configurable player limits.
-- Multiple rounds and cumulative scoring.
+- Configurable match length and scoring variants.
 - Game history and replay.
 - Spectator mode.
 - Customisable display names and avatars.
@@ -331,7 +332,7 @@ The first release should prioritise a complete, reliable multiplayer game over a
 - [ ] Unique room URLs.
 - [ ] Multiplayer room joining.
 - [ ] Browser identity-bound player seats.
-- [ ] Complete implementation of the adapted Love Letter rules.
+- [ ] Complete implementation of the [adapted Love Letter rules](rules.md).
 - [ ] Server-authoritative game engine.
 - [ ] Asynchronous turn-based gameplay.
 - [ ] Persistent game state.
