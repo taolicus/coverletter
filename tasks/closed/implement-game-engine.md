@@ -66,3 +66,24 @@ private view. Review the card table in `features/rules.md` against the
 implementation.
 
 ## Outcome
+
+Implemented `internal/game` as a pure package: card table and deck, seeded
+shuffles, 2-player set-aside and secret card, turn flow, every card effect,
+forced Non-Compete, Personal Day protection, elimination, deck-exhaustion
+tie-breaks, shared round wins, callbacks, strict-lead match end, public history,
+and per-player snapshots. `State.Apply` validates the expected version, active
+seat, hand, and targeting, returns a new state on success, and leaves the
+receiver unchanged on error. `PublicView` and `View(seat)` enforce the
+public/private boundary.
+
+Resolved an ambiguity in `features/rules.md`: the original "exactly one player
+has at least the target" wording made a shared target impossible to break, since
+callbacks never decrease. The rule now ends the match when one player has at
+least the target and a strict lead over every other player; a tie at the top at
+or above the target starts another round.
+
+Added `features/game-engine.md` with the state model, move API, version rule,
+transitions, and view boundary. Verified `go test ./...`, `go test -race ./...`,
+`go vet ./...`, and a `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` build. The HTTP
+game API and persistence of live matches remain in `expose-game-api.md`.
+

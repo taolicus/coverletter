@@ -23,11 +23,12 @@ another round rather than a shared win.
   |       3 |               5 |
   |       4 |               4 |
 
-- A player wins the match when, after a round, exactly one player has at least
-  the target and strictly more callbacks than every other player. If several
-  players reach the target in the same round, play another round. This is a
-  deliberate adaptation: standard Love Letter allows a shared win, while Cover
-  Letter has a single position to fill.
+- A player wins the match when, after a round, they have at least the target and
+  strictly more callbacks than every other player. If two or more players are
+  tied for the highest callback count at or above the target, play another
+  round. This is a deliberate adaptation: standard Love Letter allows a shared
+  win, while Cover Letter has a single position to fill. Callbacks never
+  decrease, so a strict lead is the only way to resolve a shared target.
 - The first round starts with a random seated player. The winner of the previous
   round starts the next; if several players tied, choose randomly among them.
   The engine derives these choices from the stored match seed.
@@ -172,8 +173,8 @@ scoring. The 2-player face-up cards were already public.
 
 After a round's callbacks are awarded:
 
-- If exactly one player has at least the target and strictly more callbacks
-  than every other player, that player wins the match.
+- If one player has at least the target and strictly more callbacks than every
+  other player, that player wins the match.
 - Otherwise, set up another round. The previous round's winner starts; if
   several players tied, choose randomly among them.
 
