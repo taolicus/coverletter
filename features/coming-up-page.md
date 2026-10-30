@@ -12,3 +12,5 @@ go build -o coverletter .
 
 It listens on `:8080`, prints a local URL, and opens that URL in the default
 browser. `-addr` changes the listen address. `-open=false` skips the browser.
+
+The production copy is described in [deployment](deployment.md).
