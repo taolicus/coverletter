@@ -8,40 +8,9 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
-)
 
-// page is a black viewport with the message centered on both axes.
-const page = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coming up...</title>
-<style>
-html, body {
-  margin: 0;
-  height: 100%;
-  background: #000;
-  color: #fff;
-}
-body {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-p {
-  margin: 0;
-}
-</style>
-</head>
-<body>
-<p>Coming up...</p>
-</body>
-</html>
-`
+	"github.com/taolicus/coverletter/internal/server"
+)
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
@@ -59,12 +28,7 @@ func main() {
 		go openBrowser(url)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(page))
-	})
-	log.Fatal(http.Serve(ln, mux))
+	log.Fatal(http.Serve(ln, server.New()))
 }
 
 // localURL is an address a browser on this machine can open. A wildcard

@@ -19,7 +19,7 @@ trap 'rm -rf "$build_dir"' EXIT
 
 echo "==> building for linux/amd64"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-  go build -trimpath -ldflags="-s -w" -o "$build_dir/coverletter" .
+  go build -trimpath -ldflags="-s -w" -o "$build_dir/coverletter" ./cmd/server
 
 echo "==> copying to $HOST:$REMOTE_DIR"
 ssh "$HOST" "mkdir -p '$REMOTE_DIR'"

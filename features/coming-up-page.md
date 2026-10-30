@@ -3,10 +3,14 @@
 `coverletter` serves one page: a black background with the white text
 "Coming up..." centered in the viewport, horizontally and vertically.
 
+The page lives in `web/index.html` and is embedded into the binary with
+`embed.FS`. The command is `cmd/server`; the HTTP handler is in
+`internal/server`.
+
 Build and run:
 
 ```
-go build -o coverletter .
+go build -o coverletter ./cmd/server
 ./coverletter
 ```
 
