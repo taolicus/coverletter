@@ -66,3 +66,17 @@ after setting the room to started through a test fixture. Restart the server and
 re-fetch with both cookies. Run `go test ./...` and `sh workflow/lint.sh`.
 
 ## Outcome
+
+Added the `rooms` and `room_seats` migrations, the room store, and the room
+HTTP API. Rooms have four seats, the creator takes seat 1, and two seated
+players make the room `ready`. Joining is idempotent for seated identities; a
+full or started room returns 409. `GET` does not create an identity. The view
+reports four seats, `creatorSeat`, `viewerSeat`, `canStart`, and a share URL
+derived from `Host`/`X-Forwarded-Proto` or `-base-url`. Creation and joining are
+rate-limited per client IP with the proxy-header trust assumption documented in
+`features/rooms.md`.
+
+Verified with `go test -race ./...`, `go vet ./...`, a two-cookie curl flow
+covering create, join, full-room rejection, restart persistence, and proxied
+share URLs, plus the `CGO_ENABLED=0` linux/amd64 cross-compile. The started-room
+case is covered by a test fixture. Not deployed to production in this task.

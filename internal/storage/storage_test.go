@@ -63,7 +63,7 @@ func TestOpenCreatesDatabaseAndMigrations(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 1 {
-		t.Errorf("migration rows = %d, want 1", migrations)
+	if migrations != 3 {
+		t.Errorf("migration rows = %d, want 3", migrations)
 	}
 }

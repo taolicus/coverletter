@@ -36,6 +36,9 @@ Let's Encrypt certificates under
 - Port 443 proxies `/` and `/events` to `http://127.0.0.1:18084`.
 - Proxied requests carry `Host`, `X-Real-IP`, `X-Forwarded-For`, and
   `X-Forwarded-Proto`, so the app can mark identity cookies `Secure`.
+  Share links are derived from `Host` and `X-Forwarded-Proto`; `-base-url`
+  overrides them. Rate limiting trusts `X-Real-IP` because the app is only
+  reachable through this proxy.
 - `/events` disables proxy buffering and caching for streaming responses.
 - Read and send timeouts are 3600 seconds for long-lived connections.
 

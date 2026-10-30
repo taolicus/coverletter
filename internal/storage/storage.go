@@ -20,6 +20,22 @@ var migrations = []string{
 		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 	)`,
+	`CREATE TABLE rooms (
+		id TEXT PRIMARY KEY,
+		state TEXT NOT NULL DEFAULT 'waiting'
+			CHECK (state IN ('waiting', 'ready', 'in_progress', 'completed', 'abandoned')),
+		creator_player_id INTEGER NOT NULL REFERENCES players(id),
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+	)`,
+	`CREATE TABLE room_seats (
+		room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+		seat INTEGER NOT NULL CHECK (seat BETWEEN 1 AND 4),
+		player_id INTEGER NOT NULL REFERENCES players(id),
+		joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		PRIMARY KEY (room_id, seat),
+		UNIQUE (room_id, player_id)
+	)`,
 }
 
 // Open creates the database file and its parent directory when needed, enables

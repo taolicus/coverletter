@@ -25,8 +25,7 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPatch:
 		s.updatePlayer(w, r)
 	default:
-		w.Header().Set("Allow", "GET, PATCH")
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		methodNotAllowed(w, "GET, PATCH")
 	}
 }
 
@@ -67,6 +66,20 @@ func (s *Server) currentPlayer(w http.ResponseWriter, r *http.Request) (players.
 	}
 	auth.SetCookie(w, r, token)
 	return player, true
+}
+
+// optionalPlayer returns the player for the request identity without creating
+// one when the cookie is absent or unknown.
+func (s *Server) optionalPlayer(r *http.Request) (players.Player, bool, error) {
+	token, ok := auth.Token(r)
+	if !ok {
+		return players.Player{}, false, nil
+	}
+	hash, ok := auth.HashToken(token)
+	if !ok {
+		return players.Player{}, false, nil
+	}
+	return s.players.ByTokenHash(r.Context(), hash)
 }
 
 func (s *Server) updatePlayer(w http.ResponseWriter, r *http.Request) {
