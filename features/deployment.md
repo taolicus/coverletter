@@ -22,6 +22,9 @@ It restarts on failure (`Restart=always`, `RestartSec=3`). The drop-in
 that variable; `-addr` is what sets the listen address.
 
 The app listens on loopback only. nginx terminates TLS and proxies to it.
+Its SQLite database is `/home/dev/coverletter/coverletter.db` by default,
+created on first start. Deployment replaces only the binary, so the database
+survives. See [identity and storage](identity-and-storage.md).
 
 ## nginx
 

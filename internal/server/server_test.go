@@ -15,8 +15,9 @@ func TestRootServesEmbeddedPage(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	srv, _ := newTestServer(t)
 	rec := httptest.NewRecorder()
-	New().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
