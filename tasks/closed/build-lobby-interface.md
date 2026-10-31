@@ -43,3 +43,32 @@ responsive mode at phone width (and the dev device if available). Confirm the
 assets are embedded by rebuilding after an edit. Run `sh workflow/lint.sh`.
 
 ## Outcome
+
+Built the lobby as three embedded assets: `web/index.html`, `web/style.css`, and
+`web/app.js`. The server serves the app shell for `/` and client room URLs, and
+serves the CSS and JavaScript with `Cache-Control: no-cache`. The page supports
+display-name setup/change, room creation, opening a room link, the share URL and
+copy action, four seats with host/you markers, taking the lowest open seat, and
+polling every four seconds while visible.
+
+Room errors use the API envelope: a missing room shows a retryable room-
+unavailable page, while `room_full` and `room_started` show notices and refresh
+a stale lobby. The layout uses two columns on wide screens and one below 860px;
+seats collapse to one column below 560px.
+
+Added `e2e/lobby.test.cjs` and a Playwright CI job. It drives two live browser
+contexts through creation, link opening, joining, polling, copy, full-room and
+started-room races, the not-found page, and a 390x844 viewport. On the phone
+viewport it asserts no horizontal overflow, at least 16px body text, 44px
+minimum controls, and one-column seat and room layouts; on desktop it asserts
+two columns. It also checks that the embedded page and assets are served from a
+freshly built binary.
+
+Verification: `go test ./...`, `go vet ./...`, `gofmt`, and `sh workflow/lint.sh`
+pass locally. CI run `41195970540` passed both the checks and browser jobs on
+commit `d9a841b`; the browser log ended with `e2e: lobby flow passed`. The local
+device is android/arm64 and has no browser, so the responsive check ran in CI
+Chromium at a phone viewport rather than on a physical phone. The lobby has not
+been deployed; production still serves the previous build until the deployment
+task runs.
+
