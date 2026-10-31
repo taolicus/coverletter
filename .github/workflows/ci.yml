@@ -74,7 +74,8 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Run browser test
+      - name: Run browser tests
         env:
           COVERLETTER_BIN: /tmp/coverletter-e2e
-        run: node e2e/lobby.test.cjs
+        working-directory: e2e
+        run: npm test

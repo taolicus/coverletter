@@ -11,8 +11,8 @@ change.
 - `/` is the landing page: identity and display name, create a room, or open a
   room link.
 - `/room/{id}` is the room lobby: state, share URL, four seats, and the action
-  to take the lowest open seat. The page also shows the game state if the room
-  has already started or finished.
+  to take the lowest open seat. Once the room is in progress or completed, the
+  same URL renders the [game interface](game-interface.md).
 - Any other path renders a not-found page in the browser.
 
 Navigation uses `history.pushState`; direct visits are handled by the server's
@@ -28,6 +28,9 @@ fallback to `index.html`.
   the tab is visible. Polling stops on navigation and for fatal room errors.
 - `POST /api/rooms/{id}/join` takes the lowest open seat. The response replaces
   the current room view.
+- `POST /api/rooms/{id}/start` is the creator's start control. The lobby then
+  switches to the game interface and loads `GET /api/rooms/{id}/game`; see
+  [game-interface.md](game-interface.md).
 
 The page never receives identity tokens; those stay in the HttpOnly cookie.
 
@@ -42,8 +45,8 @@ offer a seat.
 
 The share field contains the server's absolute `shareURL`. The copy action uses
 the Clipboard API on secure contexts and falls back to selecting the field and
-`document.execCommand("copy")` on plain HTTP. The creator's start control is
-not part of this page yet; it arrives with the game interface.
+`document.execCommand("copy")` on plain HTTP. The creator sees a Start game
+button only while the room is `ready`; other players wait for the host.
 
 ## Errors
 
@@ -73,5 +76,7 @@ it works offline after the binary is served.
 `e2e/lobby.test.cjs` uses Playwright against the real server binary. It creates
 two browser contexts, takes seats, checks polling, exercises the full and
 started errors from stale pages, copies the share URL, and checks a 390px-wide
-viewport for horizontal overflow and undersized controls. CI installs Chromium
-and runs it; the android/arm64 development device has no browser for this check.
+viewport for horizontal overflow and undersized controls. It also checks that a
+started room gives way to the game view. `e2e/game.test.cjs` covers the game
+flow. CI installs Chromium and runs both; the android/arm64 development device
+has no browser for this check.

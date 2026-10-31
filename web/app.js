@@ -3,8 +3,10 @@
 const API = '/api';
 const POLL_MS = 4000;
 const MIN_PLAYERS = 2;
+const HISTORY_LIMIT = 12;
 const ROOM_PATH = /^\/room\/([^/]+)\/?$/;
 const ID_PATTERN = /^[23456789abcdefghjkmnpqrstuvwxyz]+$/i;
+const TARGET_CARDS = new Set([1, 2, 3, 5, 6]);
 
 const STATE_LABELS = {
   waiting: 'Waiting',
@@ -14,10 +16,41 @@ const STATE_LABELS = {
   abandoned: 'Abandoned',
 };
 
+const CARD_NAMES = {
+  1: 'Reference Check',
+  2: 'Informational Interview',
+  3: 'Salary Comparison',
+  4: 'Personal Day',
+  5: 'Reassignment',
+  6: 'Counter-Offer',
+  7: 'Non-Compete',
+  8: 'Dream Offer',
+};
+
+const CARD_NOTES = {
+  1: "Name another player's card (not this one). A correct guess knocks them out.",
+  2: "Privately look at another player's hand.",
+  3: 'Compare hands. The lower card is knocked out.',
+  4: 'Stay protected until your next turn.',
+  5: 'Make any player discard their hand and draw a replacement.',
+  6: 'Trade hands with another player.',
+  7: 'No effect. You must play this if you also hold Reassignment or Counter-Offer.',
+  8: 'You are knocked out when you play or discard this.',
+};
+
 const ERROR_MESSAGES = {
   room_not_found: "We couldn't find that room. Check the link and try again.",
   room_full: 'This room is full. Ask the host to open another one.',
   room_started: 'This game has already started. Ask the host to open a new room.',
+  room_not_ready: 'At least two players need a seat before the game can start.',
+  not_creator: 'Only the host can start this game.',
+  not_seated: 'Only seated players can make a move.',
+  game_not_started: 'The game has not been dealt yet.',
+  game_not_in_progress: 'This game is not accepting moves.',
+  stale_version: 'The board changed before your move was submitted. It has been refreshed; choose again.',
+  not_your_turn: 'Another player moved first. The board has been refreshed.',
+  match_over: 'This match has finished.',
+  invalid_move: "That move wasn't allowed. Choose another card or target.",
   rate_limited: 'Too many requests. Wait a minute and try again.',
   invalid_name: 'Use a display name between 1 and 32 characters.',
   network: "We couldn't reach the server. Check your connection and try again.",
@@ -37,6 +70,19 @@ const state = {
   roomLoading: false,
   roomRequest: 0,
   lastRoomJSON: '',
+  game: null,
+  gameError: null,
+  gameStale: false,
+  gameLoading: false,
+  gameRequest: 0,
+  lastGameJSON: '',
+  lastMoveAt: null,
+  canMove: false,
+  selectedCard: null,
+  selectedTarget: '',
+  selectedGuess: '',
+  movePending: false,
+  moveError: null,
 };
 
 let toastTimer = null;
@@ -122,6 +168,71 @@ function messageFor(error, fallback) {
     return ERROR_MESSAGES[error.code];
   }
   return (error && error.message) || fallback;
+}
+
+function moveErrorMessage(error) {
+  if (error && error.code === 'invalid_move' && error.message) {
+    return `That move wasn't allowed: ${error.message}`;
+  }
+  return messageFor(error, "Couldn't play that card.");
+}
+
+function cardName(value) {
+  return CARD_NAMES[value] || 'Unknown card';
+}
+
+function formatClock(date) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function playerAt(game, seat) {
+  return game.players.find((player) => player.seat === seat) || null;
+}
+
+function playerName(game, seat) {
+  const player = playerAt(game, seat);
+  return player ? player.displayName || player.name : `Seat ${seat}`;
+}
+
+function isStartedRoom(room) {
+  return Boolean(room && (room.state === 'in_progress' || room.state === 'completed'));
+}
+
+function isGameMode() {
+  return Boolean(state.game) || isStartedRoom(state.room);
+}
+
+function clearRoomState(id = null) {
+  state.roomRequest += 1;
+  state.roomLoading = false;
+  state.roomID = id;
+  state.room = null;
+  state.roomError = null;
+  state.roomNotice = null;
+  state.roomNoticeKind = null;
+  state.roomStale = false;
+  state.roomFatal = false;
+  state.lastRoomJSON = '';
+  state.gameRequest += 1;
+  state.gameLoading = false;
+  state.game = null;
+  state.gameError = null;
+  state.gameStale = false;
+  state.lastGameJSON = '';
+  state.lastMoveAt = null;
+  state.canMove = false;
+  state.selectedCard = null;
+  state.selectedTarget = '';
+  state.selectedGuess = '';
+  state.movePending = false;
+  state.moveError = null;
+}
+
+function clearMoveSelection() {
+  state.selectedCard = null;
+  state.selectedTarget = '';
+  state.selectedGuess = '';
+  state.moveError = null;
 }
 
 function showToast(message) {
@@ -278,10 +389,8 @@ async function saveName(input, error, form) {
     state.nameEditing = false;
     showToast('Name saved.');
     if (state.roomID) {
-      await refreshRoom({ quiet: true, force: true });
-      if (state.room) {
-        renderRoomPage();
-      }
+      await refreshCurrent({ quiet: true, force: true });
+      renderRoomPage();
     } else {
       renderRoute();
     }
@@ -418,6 +527,19 @@ function renderRoomPage() {
         h('p', { class: 'hint' }, 'Fetching the seats.'),
       ),
     );
+    return;
+  }
+
+  if (isStartedRoom(state.room)) {
+    if (state.game) {
+      renderGamePage();
+      return;
+    }
+    if (state.gameError) {
+      renderGameUnavailable();
+      return;
+    }
+    renderGameLoading();
     return;
   }
 
@@ -582,6 +704,22 @@ function actionPanel(room) {
       h('h2', {}, `Seat ${room.viewerSeat}`),
       h('p', { class: 'hint' }, seatedMessage(room)),
     );
+    if (room.canStart) {
+      const button = h(
+        'button',
+        {
+          class: 'button button-primary button-wide',
+          id: 'start-game',
+          type: 'button',
+          onclick: () => startGame(button),
+        },
+        'Start game',
+      );
+      panel.append(
+        h('p', { class: 'hint' }, 'Everyone is seated. Deal the first round when you are ready.'),
+        button,
+      );
+    }
     return panel;
   }
 
@@ -628,7 +766,9 @@ function seatedMessage(room) {
     case 'waiting':
       return 'Waiting for more players. Share the link.';
     case 'ready':
-      return 'The room is ready. Waiting for the host to start.';
+      return room.viewerSeat === room.creatorSeat
+        ? 'Everyone is here. Start the game when you are ready.'
+        : 'The room is ready. Waiting for the host to start.';
     case 'in_progress':
       return 'The game is in progress.';
     case 'completed':
@@ -691,6 +831,47 @@ async function joinRoom(button, seatNumber) {
   }
 }
 
+async function startGame(button) {
+  const id = state.roomID;
+  if (!id) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Starting…';
+  state.roomNotice = null;
+  state.roomNoticeKind = null;
+
+  try {
+    const room = await request(`${API}/rooms/${encodeURIComponent(id)}/start`, {
+      method: 'POST',
+    });
+    if (state.roomID !== id) {
+      return;
+    }
+    state.room = room;
+    state.lastRoomJSON = JSON.stringify(room);
+    state.roomError = null;
+    state.roomStale = false;
+    await refreshGame({ quiet: false, force: true });
+    renderRoomPage();
+  } catch (err) {
+    if (state.roomID !== id) {
+      return;
+    }
+    state.roomNotice = messageFor(err, "Couldn't start the game.");
+    state.roomNoticeKind = 'error';
+    if (err.code === 'room_started') {
+      await refreshCurrent({ quiet: true, force: true });
+    }
+    renderRoomPage();
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = 'Start game';
+    }
+  }
+}
+
 async function copyShareURL(input) {
   const value = input.value;
   try {
@@ -735,6 +916,16 @@ async function refreshRoom({ quiet = false, force = false } = {}) {
     state.lastRoomJSON = serialized;
     state.roomError = null;
     state.roomStale = false;
+    if (isStartedRoom(room)) {
+      state.gameError = null;
+      state.gameStale = false;
+      if (state.gameLoading) {
+        renderRoomPage();
+      } else {
+        await refreshGame({ quiet, force: true });
+      }
+      return;
+    }
     if (!quiet || changed || force || wasStale) {
       renderRoomPage();
     }
@@ -764,6 +955,82 @@ async function refreshRoom({ quiet = false, force = false } = {}) {
   }
 }
 
+function applyGameData(data) {
+  const previousVersion = state.game ? state.game.version : null;
+  const versionChanged = previousVersion !== data.game.version;
+  state.room = data.room;
+  state.lastRoomJSON = JSON.stringify(data.room);
+  state.game = data.game;
+  state.canMove = Boolean(data.canMove);
+  state.gameError = null;
+  state.gameStale = false;
+  state.roomError = null;
+  state.roomStale = false;
+  state.lastGameJSON = JSON.stringify(data);
+  if (versionChanged) {
+    state.lastMoveAt = previousVersion === null ? null : new Date();
+    clearMoveSelection();
+  } else {
+    const hand = data.game.hand || [];
+    if (state.selectedCard && !hand.includes(Number(state.selectedCard))) {
+      clearMoveSelection();
+    }
+  }
+}
+
+async function refreshGame({ quiet = false, force = false } = {}) {
+  const id = state.roomID;
+  if (!id || state.gameLoading) {
+    return;
+  }
+
+  const requestID = state.gameRequest + 1;
+  state.gameRequest = requestID;
+  state.gameLoading = true;
+  const wasStale = state.gameStale;
+
+  try {
+    const data = await request(`${API}/rooms/${encodeURIComponent(id)}/game`);
+    if (state.gameRequest !== requestID || state.roomID !== id) {
+      return;
+    }
+    const changed = JSON.stringify(data) !== state.lastGameJSON;
+    applyGameData(data);
+    if (!quiet || changed || force || wasStale) {
+      renderRoomPage();
+    }
+  } catch (err) {
+    if (state.gameRequest !== requestID || state.roomID !== id) {
+      return;
+    }
+    if (err.code === 'room_not_found') {
+      state.roomFatal = true;
+      state.roomError = messageFor(err, "We couldn't find that room.");
+      stopPolling();
+      renderRoomPage();
+      return;
+    }
+    if (!quiet || !state.game) {
+      state.gameError = messageFor(err, "Couldn't load the game.");
+      renderRoomPage();
+      return;
+    }
+    state.gameStale = true;
+    renderRoomPage();
+  } finally {
+    if (state.gameRequest === requestID) {
+      state.gameLoading = false;
+    }
+  }
+}
+
+function refreshCurrent(options = {}) {
+  if (isGameMode()) {
+    return refreshGame(options);
+  }
+  return refreshRoom(options);
+}
+
 function startPolling() {
   stopPolling();
   if (!state.roomID || state.roomFatal) {
@@ -771,7 +1038,7 @@ function startPolling() {
   }
   state.pollTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') {
-      void refreshRoom({ quiet: true });
+      void refreshCurrent({ quiet: true });
     }
   }, POLL_MS);
 }
@@ -781,6 +1048,744 @@ function stopPolling() {
     window.clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+}
+
+function forcedNonCompete(hand) {
+  return hand.includes(7) && (hand.includes(5) || hand.includes(6));
+}
+
+function legalTargets(card, game, seat) {
+  if (card === 5) {
+    return game.players.filter(
+      (player) => !player.eliminated && (!player.protected || player.seat === seat),
+    );
+  }
+  if (TARGET_CARDS.has(card)) {
+    return game.players.filter(
+      (player) => player.seat !== seat && !player.eliminated && !player.protected,
+    );
+  }
+  return [];
+}
+
+function moveNeedsTarget(card, game, seat) {
+  return TARGET_CARDS.has(card) && legalTargets(card, game, seat).length > 0;
+}
+
+function moveNeedsGuess(card, game, seat) {
+  return card === 1 && moveNeedsTarget(card, game, seat);
+}
+
+function selectedMove() {
+  const game = state.game;
+  const card = Number(state.selectedCard);
+  if (!game || !state.canMove || !card || !(game.hand || []).includes(card)) {
+    return null;
+  }
+
+  const seat = game.viewerSeat;
+  const targetNeeded = moveNeedsTarget(card, game, seat);
+  const target = targetNeeded ? Number(state.selectedTarget) : 0;
+  if (targetNeeded && !legalTargets(card, game, seat).some((player) => player.seat === target)) {
+    return null;
+  }
+
+  const guessNeeded = moveNeedsGuess(card, game, seat);
+  const guess = guessNeeded ? Number(state.selectedGuess) : 0;
+  if (guessNeeded && (guess < 2 || guess > 8)) {
+    return null;
+  }
+
+  return { version: game.version, card, target, guess };
+}
+
+function updateMoveControls() {
+  const button = document.getElementById('play-card');
+  if (button) {
+    button.disabled = state.movePending || !selectedMove();
+  }
+}
+
+function selectCard(card) {
+  if (state.movePending) {
+    return;
+  }
+  state.selectedCard = String(card);
+  state.selectedTarget = '';
+  state.selectedGuess = '';
+  state.moveError = null;
+  renderRoomPage();
+}
+
+async function submitSelectedMove() {
+  if (state.movePending) {
+    return;
+  }
+  const id = state.roomID;
+  const move = selectedMove();
+  if (!id || !move) {
+    return;
+  }
+
+  state.movePending = true;
+  state.moveError = null;
+  renderRoomPage();
+
+  try {
+    const data = await request(`${API}/rooms/${encodeURIComponent(id)}/move`, {
+      method: 'POST',
+      body: JSON.stringify(move),
+    });
+    if (state.roomID !== id) {
+      return;
+    }
+    applyGameData(data);
+    state.movePending = false;
+    clearMoveSelection();
+    renderRoomPage();
+  } catch (err) {
+    if (state.roomID !== id) {
+      return;
+    }
+    const message = moveErrorMessage(err);
+    state.movePending = false;
+    state.moveError = message;
+    if (err.code === 'room_not_found') {
+      state.roomFatal = true;
+      state.roomError = message;
+      stopPolling();
+      renderRoomPage();
+      return;
+    }
+    if (
+      err.code === 'stale_version' ||
+      err.code === 'not_your_turn' ||
+      err.code === 'game_not_in_progress' ||
+      err.code === 'match_over'
+    ) {
+      state.selectedCard = null;
+      state.selectedTarget = '';
+      state.selectedGuess = '';
+      await refreshGame({ quiet: true, force: true });
+      state.moveError = message;
+    }
+    renderRoomPage();
+  }
+}
+
+function renderGameLoading() {
+  const completed = state.room.state === 'completed';
+  renderApp(
+    h(
+      'section',
+      { class: 'panel' },
+      h('p', { class: 'eyebrow' }, completed ? 'Final board' : 'Dealing in'),
+      h('h1', { class: 'room-title' }, completed ? 'Opening the final board…' : 'Dealing the cards…'),
+      h('p', { class: 'hint' }, 'This will only take a moment.'),
+    ),
+  );
+}
+
+function renderGameUnavailable() {
+  renderApp(
+    h(
+      'section',
+      { class: 'panel error-panel' },
+      h('p', { class: 'eyebrow' }, 'Game unavailable'),
+      h('h1', { class: 'room-title' }, "We couldn't load the game."),
+      h('p', { class: 'lede' }, state.gameError || 'Try again in a moment.'),
+      h(
+        'div',
+        { class: 'button-row' },
+        h('a', { class: 'button button-secondary', href: '/' }, 'Back to the lobby'),
+        h(
+          'button',
+          {
+            class: 'button button-primary',
+            type: 'button',
+            onclick: () => {
+              state.gameError = null;
+              renderRoomPage();
+              void refreshGame({ quiet: false, force: true });
+            },
+          },
+          'Try again',
+        ),
+      ),
+    ),
+  );
+}
+
+function renderGamePage() {
+  const game = state.game;
+  const room = state.room;
+  const over = game.phase === 'match_over';
+  const notices = [];
+
+  if (state.gameStale || state.roomStale) {
+    notices.push(
+      h(
+        'p',
+        { class: 'notice notice-warning', role: 'status' },
+        "Can't reach the server. Retrying…",
+      ),
+    );
+  }
+  if (state.roomNotice) {
+    notices.push(
+      h(
+        'p',
+        {
+          class: `notice notice-${state.roomNoticeKind || 'success'}`,
+          role: state.roomNoticeKind === 'error' ? 'alert' : 'status',
+        },
+        state.roomNotice,
+      ),
+    );
+  }
+
+  const top = h(
+    'section',
+    { class: 'panel game-top' },
+    h(
+      'div',
+      { class: 'room-header' },
+      h(
+        'div',
+        {},
+        h('p', { class: 'eyebrow' }, over ? 'Match over' : `Round ${game.round}`),
+        h('h1', { class: 'room-title' }, over ? 'Final board' : 'Cover Letter'),
+        h('p', { class: 'room-code' }, `Room ${room.id}`),
+      ),
+      h(
+        'span',
+        { class: `badge badge-${room.state}` },
+        stateLabel(room.state),
+      ),
+    ),
+    h(
+      'p',
+      { class: 'room-status' },
+      `Turn ${game.turn} · ${game.drawCount} ${game.drawCount === 1 ? 'card' : 'cards'} left to draw · ${game.target} callbacks to win`,
+    ),
+    game.faceUp && game.faceUp.length
+      ? h(
+          'p',
+          { class: 'game-meta' },
+          'Set aside face up: ',
+          game.faceUp.map(cardName).join(', '),
+        )
+      : null,
+    ...notices,
+  );
+
+  const main = h(
+    'div',
+    { class: 'stack' },
+    turnPanel(game),
+    seatsPanelGame(game),
+    historyPanel(game),
+  );
+  const side = h(
+    'aside',
+    { class: 'stack' },
+    handPanel(game),
+    snapshotsPanel(game),
+    roundPanel(game),
+  );
+
+  renderApp(
+    h(
+      'div',
+      {
+        id: 'game-view',
+        class: 'game-page',
+        dataset: {
+          version: String(game.version),
+          phase: game.phase,
+          canMove: String(state.canMove),
+        },
+      },
+      top,
+      h('div', { class: 'game-layout' }, main, side),
+    ),
+  );
+}
+
+function turnPanel(game) {
+  if (game.phase === 'match_over') {
+    const winner = playerAt(game, game.matchWinnerSeat);
+    const name = winner ? winner.name : `Seat ${game.matchWinnerSeat}`;
+    const callbacks = winner ? winner.callbacks : game.target;
+    return h(
+      'section',
+      { class: 'panel turn-panel match-over', id: 'match-result' },
+      h('p', { class: 'eyebrow' }, 'Match over'),
+      h('h2', {}, `${name} wins!`),
+      h('p', { class: 'hint' }, `${callbacks} callbacks. The position is filled.`),
+    );
+  }
+
+  const active = playerAt(game, game.activeSeat);
+  const activeName = active ? active.name : 'the next player';
+  const viewer = playerAt(game, game.viewerSeat);
+  const yourTurn = state.canMove;
+
+  let hint;
+  if (yourTurn) {
+    hint = 'Choose one card from your hand and play it.';
+  } else if (viewer && viewer.eliminated) {
+    hint = `You are out of this round. Waiting for ${activeName} to move.`;
+  } else {
+    hint = `It's ${activeName}'s turn. This board refreshes automatically.`;
+  }
+
+  return h(
+    'section',
+    {
+      class: ['panel', 'turn-panel', yourTurn ? 'your-turn' : 'waiting-turn'].join(' '),
+      'aria-live': 'polite',
+    },
+    h('p', { class: 'eyebrow' }, yourTurn ? 'Your move' : 'Waiting'),
+    h('h2', { id: 'turn-status' }, yourTurn ? 'Your turn' : `Waiting for ${activeName}`),
+    h('p', { class: 'hint' }, hint),
+    state.lastMoveAt
+      ? h(
+          'p',
+          { class: 'game-meta', id: 'last-move' },
+          `Last move seen at ${formatClock(state.lastMoveAt)}.`,
+        )
+      : null,
+  );
+}
+
+function cardChip(card) {
+  return h(
+    'span',
+    { class: 'card-chip' },
+    h('span', { class: 'card-chip-rank' }, String(card)),
+    h('span', { class: 'card-chip-name' }, cardName(card)),
+  );
+}
+
+function seatsPanelGame(game) {
+  const list = h('ul', { class: 'game-seat-grid', id: 'game-seats' });
+
+  for (const player of game.players) {
+    const active = game.phase !== 'match_over' && player.seat === game.activeSeat;
+    const you = player.seat === game.viewerSeat;
+    const winner = game.phase === 'match_over' && player.seat === game.matchWinnerSeat;
+    const classes = ['game-seat'];
+    if (active) {
+      classes.push('is-active');
+    }
+    if (you) {
+      classes.push('is-you');
+    }
+    if (player.eliminated) {
+      classes.push('is-out');
+    }
+
+    const tags = [];
+    if (active) {
+      tags.push(h('span', { class: 'tag tag-active' }, 'Active'));
+    }
+    if (you) {
+      tags.push(h('span', { class: 'tag tag-you' }, 'You'));
+    }
+    if (player.eliminated) {
+      tags.push(h('span', { class: 'tag tag-out' }, 'Out'));
+    } else if (player.protected) {
+      tags.push(h('span', { class: 'tag tag-protected' }, 'Protected'));
+    }
+    if (winner) {
+      tags.push(h('span', { class: 'tag tag-winner' }, 'Winner'));
+    }
+
+    const handLabel = `${player.handCount} ${player.handCount === 1 ? 'card' : 'cards'} in hand`;
+    list.append(
+      h(
+        'li',
+        {
+          class: classes.join(' '),
+          dataset: {
+            seat: String(player.seat),
+            active: String(active),
+            eliminated: String(player.eliminated),
+          },
+        },
+        h(
+          'div',
+          { class: 'game-seat-head' },
+          h('span', { class: 'seat-number' }, `Seat ${player.seat}`),
+          ...tags,
+        ),
+        h('p', { class: 'game-seat-name' }, player.name),
+        h(
+          'p',
+          { class: 'game-seat-meta' },
+          `${player.callbacks} / ${game.target} callbacks · ${handLabel}`,
+        ),
+        h(
+          'div',
+          { class: 'discard-block' },
+          h('p', { class: 'field-label' }, 'Discards'),
+          player.discard && player.discard.length
+            ? h('div', { class: 'card-chips' }, player.discard.map(cardChip))
+            : h('p', { class: 'hint' }, 'No discards yet.'),
+        ),
+      ),
+    );
+  }
+
+  return h(
+    'section',
+    { class: 'panel', 'aria-labelledby': 'game-seats-heading' },
+    h(
+      'div',
+      { class: 'panel-heading' },
+      h('h2', { id: 'game-seats-heading' }, 'The table'),
+      h('p', { class: 'hint' }, `${game.playerCount} players`),
+    ),
+    list,
+  );
+}
+
+function historyPanel(game) {
+  const events = game.history || [];
+  const shown = events.slice(-HISTORY_LIMIT).reverse();
+  const list = h('ol', { class: 'history-list', id: 'game-history' });
+
+  for (const event of shown) {
+    list.append(
+      h(
+        'li',
+        { class: 'history-item', dataset: { kind: event.kind } },
+        h(
+          'p',
+          { class: 'history-meta' },
+          `${event.kind === 'play' ? `Round ${event.round} · turn ${event.turn}` : `Round ${event.round}`}`,
+        ),
+        h('p', { class: 'history-text' }, describeEvent(game, event)),
+      ),
+    );
+  }
+
+  return h(
+    'section',
+    { class: 'panel', 'aria-labelledby': 'history-heading' },
+    h(
+      'div',
+      { class: 'panel-heading' },
+      h('h2', { id: 'history-heading' }, 'Recent history'),
+      h('p', { class: 'hint' }, events.length > shown.length ? `Last ${shown.length} of ${events.length}` : 'Newest first'),
+    ),
+    shown.length ? list : h('p', { class: 'hint' }, 'No moves yet.'),
+  );
+}
+
+function describeEvent(game, event) {
+  const name = event.seat ? playerName(game, event.seat) : '';
+  const target = event.target ? playerName(game, event.target) : '';
+
+  if (event.kind === 'round_end') {
+    const winners = (event.winners || []).map((seat) => playerName(game, seat)).join(' and ');
+    const secret = event.secret ? ` The secret card was ${cardName(event.secret)}.` : '';
+    const shared = (event.winners || []).length > 1 ? ' Shared round win.' : '';
+    return `${winners || 'No one'} won round ${event.round} and gained a callback.${shared}${secret}`;
+  }
+  if (event.kind === 'match_end') {
+    return `${playerName(game, event.matchWinner)} won the match.`;
+  }
+
+  const card = event.card;
+  switch (card) {
+    case 1:
+      if (event.result === 'no_effect') {
+        return `${name} played Reference Check. Everyone else was protected, so it had no effect.`;
+      }
+      if (event.result === 'correct') {
+        return `${name} played Reference Check on ${target}, guessing ${cardName(event.guess)}. Correct — ${target} is out.`;
+      }
+      return `${name} played Reference Check on ${target}, guessing ${cardName(event.guess)}. Wrong guess; no effect.`;
+    case 2:
+      if (event.result === 'no_effect') {
+        return `${name} played Informational Interview. Everyone else was protected, so it had no effect.`;
+      }
+      return `${name} played Informational Interview on ${target} and viewed their hand.`;
+    case 3:
+      if (event.result === 'no_effect') {
+        return `${name} played Salary Comparison. Everyone else was protected, so it had no effect.`;
+      }
+      if (event.result === 'actor_eliminated') {
+        return `${name} played Salary Comparison with ${target}. ${name} had the lower card and is out.`;
+      }
+      if (event.result === 'target_eliminated') {
+        return `${name} played Salary Comparison with ${target}. ${target} had the lower card and is out.`;
+      }
+      return `${name} played Salary Comparison with ${target}. The cards tied.`;
+    case 4:
+      return `${name} played Personal Day and is protected until their next turn.`;
+    case 5:
+      if (event.result === 'eliminated') {
+        return `${name} played Reassignment on ${target}. ${target} discarded Dream Offer and is out.`;
+      }
+      return `${name} played Reassignment on ${target}. ${target} discarded and drew a replacement.`;
+    case 6:
+      if (event.result === 'no_effect') {
+        return `${name} played Counter-Offer. Everyone else was protected, so it had no effect.`;
+      }
+      return `${name} played Counter-Offer and swapped hands with ${target}.`;
+    case 7:
+      return `${name} played Non-Compete. No effect.`;
+    case 8:
+      return `${name} played Dream Offer and is out.`;
+    default:
+      return `${name} played ${cardName(card)}.`;
+  }
+}
+
+function handCardView(card, { selected = false, disabled = false, onSelect = null } = {}) {
+  const props = {
+    class: ['game-card', 'hand-card', selected ? 'is-selected' : ''].filter(Boolean).join(' '),
+    dataset: { card: String(card) },
+  };
+  const body = [
+    h('span', { class: 'card-rank' }, String(card)),
+    h(
+      'span',
+      { class: 'card-body' },
+      h('span', { class: 'card-name' }, cardName(card)),
+      h('span', { class: 'card-note' }, CARD_NOTES[card]),
+    ),
+  ];
+
+  if (onSelect) {
+    return h(
+      'button',
+      {
+        ...props,
+        type: 'button',
+        'aria-pressed': selected ? 'true' : 'false',
+        disabled,
+        onclick: onSelect,
+      },
+      ...body,
+    );
+  }
+  return h('div', { ...props, 'aria-disabled': 'true' }, ...body);
+}
+
+function handPanel(game) {
+  const viewer = playerAt(game, game.viewerSeat);
+  if (!viewer) {
+    return h(
+      'section',
+      { class: 'panel', id: 'your-hand' },
+      h('p', { class: 'eyebrow' }, 'Spectator'),
+      h('h2', {}, 'Watching the table'),
+      h('p', { class: 'hint' }, 'You do not have a seat in this match. The public board still updates.'),
+    );
+  }
+
+  const hand = game.hand || [];
+  const over = game.phase === 'match_over';
+  const forced = forcedNonCompete(hand);
+  const interactive = state.canMove && !over && !state.movePending;
+  const cards = h(
+    'div',
+    { class: 'hand-cards' },
+    hand.map((card) =>
+      handCardView(card, {
+        selected: state.selectedCard === String(card),
+        disabled: !interactive || (forced && card !== 7),
+        onSelect: interactive && (!forced || card === 7) ? () => selectCard(card) : null,
+      }),
+    ),
+  );
+
+  let content;
+  if (!hand.length) {
+    content = h('p', { class: 'hint' }, 'No cards left this round.');
+  } else if (state.canMove && !over) {
+    content = [
+      forced
+        ? h(
+            'p',
+            { class: 'notice notice-warning' },
+            'Non-Compete must be played while you also hold Reassignment or Counter-Offer.',
+          )
+        : null,
+      cards,
+      state.selectedCard ? moveControls(game, viewer) : h('p', { class: 'hint' }, 'Choose a card to see its target and effect.'),
+    ];
+  } else {
+    content = [
+      h('p', { class: 'hint' }, over ? 'The match is over.' : 'You can play when it is your turn.'),
+      cards,
+    ];
+  }
+
+  return h(
+    'section',
+    { class: 'panel hand-panel', id: 'your-hand' },
+    h(
+      'div',
+      { class: 'panel-heading' },
+      h('h2', {}, 'Your hand'),
+      h('p', { class: 'hint' }, `Seat ${viewer.seat} · ${viewer.name}`),
+    ),
+    state.moveError
+      ? h('p', { class: 'form-error', id: 'move-error', role: 'alert' }, state.moveError)
+      : null,
+    ...content,
+  );
+}
+
+function moveControls(game, viewer) {
+  const card = Number(state.selectedCard);
+  const targets = legalTargets(card, game, viewer.seat);
+  const targetNeeded = moveNeedsTarget(card, game, viewer.seat);
+  const guessNeeded = moveNeedsGuess(card, game, viewer.seat);
+
+  let targetSelect = null;
+  if (targetNeeded) {
+    targetSelect = h(
+      'select',
+      {
+        id: 'move-target',
+        'aria-label': 'Choose a target',
+        onchange: (event) => {
+          state.selectedTarget = event.target.value;
+          updateMoveControls();
+        },
+      },
+      h('option', { value: '' }, 'Choose a player'),
+      targets.map((player) =>
+        h('option', { value: String(player.seat) }, `${player.name} (seat ${player.seat})`),
+      ),
+    );
+    targetSelect.value = state.selectedTarget;
+  }
+
+  let guessSelect = null;
+  if (guessNeeded) {
+    guessSelect = h(
+      'select',
+      {
+        id: 'move-guess',
+        'aria-label': 'Choose a card to guess',
+        onchange: (event) => {
+          state.selectedGuess = event.target.value;
+          updateMoveControls();
+        },
+      },
+      h('option', { value: '' }, 'Choose a card'),
+      [2, 3, 4, 5, 6, 7, 8].map((value) =>
+        h('option', { value: String(value) }, `${value}. ${cardName(value)}`),
+      ),
+    );
+    guessSelect.value = state.selectedGuess;
+  }
+
+  const noTargets =
+    TARGET_CARDS.has(card) && targets.length === 0
+      ? h('p', { class: 'hint' }, 'Everyone else is protected, so this card will have no effect.')
+      : null;
+
+  const button = h(
+    'button',
+    {
+      class: 'button button-primary button-wide',
+      id: 'play-card',
+      type: 'submit',
+      disabled: state.movePending || !selectedMove(),
+    },
+    state.movePending ? 'Playing…' : 'Play card',
+  );
+
+  return h(
+    'form',
+    {
+      class: 'move-controls',
+      id: 'move-controls',
+      onsubmit: (event) => {
+        event.preventDefault();
+        void submitSelectedMove();
+      },
+    },
+    h('p', { class: 'eyebrow' }, `Play ${cardName(card)}`),
+    targetSelect
+      ? h('div', { class: 'move-field' }, h('label', { for: 'move-target' }, 'Target'), targetSelect)
+      : null,
+    guessSelect
+      ? h('div', { class: 'move-field' }, h('label', { for: 'move-guess' }, 'Guess their card'), guessSelect)
+      : null,
+    noTargets,
+    button,
+  );
+}
+
+function snapshotsPanel(game) {
+  const viewer = playerAt(game, game.viewerSeat);
+  const snapshots = (viewer && viewer.snapshots) || [];
+  if (!snapshots.length) {
+    return null;
+  }
+
+  return h(
+    'section',
+    { class: 'panel', id: 'snapshots' },
+    h('p', { class: 'eyebrow' }, 'Private notes'),
+    h('h2', {}, 'Hands you have seen'),
+    h(
+      'ul',
+      { class: 'snapshot-list' },
+      snapshots.map((snapshot) =>
+        h(
+          'li',
+          {},
+          h('p', { class: 'history-meta' }, `Round ${snapshot.round} · turn ${snapshot.turn}`),
+          h(
+            'p',
+            { class: 'history-text' },
+            `${playerName(game, snapshot.targetSeat)}: ${snapshot.cards.map(cardName).join(', ')}`,
+          ),
+        ),
+      ),
+    ),
+    h('p', { class: 'hint' }, 'These are snapshots from the moment you looked; later draws do not update them.'),
+  );
+}
+
+function roundPanel(game) {
+  const round = game.lastRound;
+  if (!round) {
+    return null;
+  }
+  const winners = (round.winners || []).map((seat) => playerName(game, seat)).join(' and ');
+  return h(
+    'section',
+    { class: 'panel', id: 'last-round' },
+    h('p', { class: 'eyebrow' }, `Round ${round.round} result`),
+    h('h2', {}, winners ? `${winners} won the round` : 'Round complete'),
+    round.secret
+      ? h('p', { class: 'hint' }, `Secret card: ${cardName(round.secret)}.`)
+      : h('p', { class: 'hint' }, 'The secret card had already been drawn.'),
+    round.hands && round.hands.length
+      ? h(
+          'ul',
+          { class: 'snapshot-list' },
+          round.hands.map((hand) =>
+            h(
+              'li',
+              {},
+              h('p', { class: 'history-text' }, `${playerName(game, hand.seat)}: ${hand.cards.map(cardName).join(', ')}`),
+            ),
+          ),
+        )
+      : null,
+  );
 }
 
 function renderRoomFatal() {
@@ -802,12 +1807,7 @@ function renderRoomFatal() {
             class: 'button button-secondary',
             type: 'button',
             onclick: () => {
-              state.roomFatal = false;
-              state.room = null;
-              state.roomError = null;
-              state.roomNotice = null;
-              state.roomStale = false;
-              state.lastRoomJSON = '';
+              clearRoomState(state.roomID);
               renderRoute();
             },
           },
@@ -859,46 +1859,29 @@ function renderRoute() {
   if (match) {
     const id = decodeURIComponent(match[1]);
     if (state.roomID !== id) {
-      state.roomRequest += 1;
-      state.roomLoading = false;
-      state.roomID = id;
-      state.room = null;
-      state.roomError = null;
-      state.roomNotice = null;
-      state.roomNoticeKind = null;
-      state.roomStale = false;
-      state.roomFatal = false;
-      state.lastRoomJSON = '';
+      clearRoomState(id);
     }
     document.title = `Room ${id} · Cover Letter`;
     renderRoomPage();
-    if (!state.room && !state.roomFatal && !state.roomLoading) {
-      void refreshRoom({ quiet: false, force: true });
+    if (!state.roomFatal) {
+      if (isGameMode() && !state.game && !state.gameError && !state.gameLoading) {
+        void refreshGame({ quiet: false, force: true });
+      } else if (!state.room && !state.roomLoading) {
+        void refreshRoom({ quiet: false, force: true });
+      }
     }
     startPolling();
     return;
   }
 
   if (window.location.pathname === '/' || window.location.pathname === '') {
-    state.roomRequest += 1;
-    state.roomLoading = false;
-    state.roomID = null;
-    state.room = null;
-    state.roomError = null;
-    state.roomNotice = null;
-    state.roomNoticeKind = null;
-    state.roomStale = false;
-    state.roomFatal = false;
-    state.lastRoomJSON = '';
+    clearRoomState(null);
     document.title = 'Cover Letter';
     renderLanding();
     return;
   }
 
-  state.roomRequest += 1;
-  state.roomLoading = false;
-  state.roomID = null;
-  state.room = null;
+  clearRoomState(null);
   document.title = 'Not found · Cover Letter';
   renderNotFound();
 }
@@ -915,7 +1898,7 @@ async function init() {
   window.addEventListener('popstate', renderRoute);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && state.roomID) {
-      void refreshRoom({ quiet: true });
+      void refreshCurrent({ quiet: true, force: true });
     }
   });
 }
