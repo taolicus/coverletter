@@ -37,5 +37,15 @@ support it.
 
 ## Outcome
 
-Filled in when the task is closed: what was done, what was verified, what was
-not, and what remains.
+Added `.github/workflows/ci.yml`. It runs on pushes to `main` and pull requests
+on `ubuntu-latest`, uses `actions/checkout@v7` and `actions/setup-go@v7` with the
+Go version from `go.mod` and module/build caching, and checks `gofmt`, `go vet
+./...`, `go test ./...`, `go test -race ./...`, `sh workflow/lint.sh`, and the
+`CGO_ENABLED=0 GOOS=linux GOARCH=amd64` build used by `deploy.sh`. Concurrent
+runs for the same ref are cancelled.
+
+Run `41194472880` on `main` (commit `9269a26`) passed in 1m56s, including the
+race test that this android/arm64 device cannot run. The only annotation was
+GitHub's notice that the `ubuntu-latest` label migrates to Ubuntu 26 in October
+2026; it does not affect the run. `features/deployment.md` now records what CI
+checks and why the race test belongs there. CI does not deploy.
