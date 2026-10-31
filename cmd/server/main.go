@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/taolicus/coverletter/internal/matches"
 	"github.com/taolicus/coverletter/internal/players"
 	"github.com/taolicus/coverletter/internal/rooms"
 	"github.com/taolicus/coverletter/internal/server"
@@ -42,6 +43,7 @@ func main() {
 	log.Fatal(http.Serve(ln, server.New(server.Config{
 		Players: players.New(db),
 		Rooms:   rooms.New(db),
+		Matches: matches.New(db),
 		BaseURL: *baseURL,
 	})))
 }

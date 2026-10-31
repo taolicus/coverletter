@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/taolicus/coverletter/internal/matches"
 	"github.com/taolicus/coverletter/internal/players"
 	"github.com/taolicus/coverletter/internal/rooms"
 	"github.com/taolicus/coverletter/internal/storage"
@@ -27,6 +28,7 @@ func newTestServerWithConfig(t *testing.T, configure func(*Config)) (http.Handle
 	config := Config{
 		Players: players.New(db),
 		Rooms:   rooms.New(db),
+		Matches: matches.New(db),
 	}
 	if configure != nil {
 		configure(&config)

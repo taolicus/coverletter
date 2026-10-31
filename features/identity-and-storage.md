@@ -11,9 +11,11 @@ The server uses SQLite through the pure-Go `modernc.org/sqlite` driver, so the
 `coverletter.db`, relative to the process working directory). A missing parent
 directory and database file are created; a new database file is mode `0600`.
 
-The connection enables WAL, a 5000 ms busy timeout, and foreign keys. Migrations
-run at startup, are recorded in `schema_migrations`, and are skipped on later
-starts. The first migration creates `players`:
+The connection enables WAL, a 5000 ms busy timeout, and foreign keys. Write
+transactions begin `IMMEDIATE`, so concurrent room and match updates serialize
+instead of racing on SQLite's deferred locks. Migrations run at startup, are
+recorded in `schema_migrations`, and are skipped on later starts. The first
+migration creates `players`:
 
 ```sql
 players(
@@ -24,6 +26,9 @@ players(
   updated_at TEXT NOT NULL
 )
 ```
+
+Later migrations create `rooms`, `room_seats`, and `games`. The `games` table and
+its JSON document are described in [game-api.md](game-api.md).
 
 ## Browser identity
 

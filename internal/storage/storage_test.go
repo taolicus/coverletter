@@ -59,11 +59,11 @@ func TestOpenCreatesDatabaseAndMigrations(t *testing.T) {
 		t.Errorf("player rows = %d, want 1", players)
 	}
 
-	var migrations int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
+	var applied int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 3 {
-		t.Errorf("migration rows = %d, want 3", migrations)
+	if applied != len(migrations) {
+		t.Errorf("migration rows = %d, want %d", applied, len(migrations))
 	}
 }

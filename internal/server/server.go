@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/taolicus/coverletter/internal/matches"
 	"github.com/taolicus/coverletter/internal/players"
 	"github.com/taolicus/coverletter/internal/rooms"
 	"github.com/taolicus/coverletter/web"
@@ -21,6 +22,7 @@ const (
 type Config struct {
 	Players *players.Store
 	Rooms   *rooms.Store
+	Matches *matches.Store
 	BaseURL string
 	// CreateLimit and JoinLimit are requests per RateWindow per client IP.
 	// Zero uses the default.
@@ -33,6 +35,7 @@ type Config struct {
 type Server struct {
 	players       *players.Store
 	rooms         *rooms.Store
+	matches       *matches.Store
 	baseURL       string
 	createLimiter *rateLimiter
 	joinLimiter   *rateLimiter
@@ -59,6 +62,7 @@ func New(config Config) http.Handler {
 	s := &Server{
 		players:       config.Players,
 		rooms:         config.Rooms,
+		matches:       config.Matches,
 		baseURL:       config.BaseURL,
 		createLimiter: newRateLimiter(config.CreateLimit, config.RateWindow),
 		joinLimiter:   newRateLimiter(config.JoinLimit, config.RateWindow),

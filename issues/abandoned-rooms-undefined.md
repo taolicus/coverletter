@@ -32,5 +32,5 @@ deleted or archived. That turns cleanup into an actionable task.
 
 ## Affects
 
-`tasks/open/create-and-join-rooms.md`, `tasks/open/expose-game-api.md`,
+`tasks/closed/create-and-join-rooms.md`, `tasks/closed/expose-game-api.md`,
 the storage schema, and any future maintenance job.

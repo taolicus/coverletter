@@ -36,6 +36,14 @@ var migrations = []string{
 		PRIMARY KEY (room_id, seat),
 		UNIQUE (room_id, player_id)
 	)`,
+	`CREATE TABLE games (
+		room_id TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+		format_version INTEGER NOT NULL,
+		state_version INTEGER NOT NULL,
+		state TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+	)`,
 }
 
 // Open creates the database file and its parent directory when needed, enables
@@ -58,7 +66,8 @@ func Open(path string) (*sql.DB, error) {
 	dsn := "file:" + path +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +
-		"&_pragma=foreign_keys(1)"
+		"&_pragma=foreign_keys(1)" +
+		"&_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

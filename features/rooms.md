@@ -8,7 +8,8 @@ be ready; four is the maximum.
 
 - `waiting`: fewer than two seated players.
 - `ready`: at least two seated players, not started.
-- `in_progress` and `completed` are reserved for the game API.
+- `in_progress`: the creator started the match.
+- `completed`: the match ended; see [game-api.md](game-api.md).
 - `abandoned` exists in the schema but has no trigger or cleanup policy yet; see
   `issues/abandoned-rooms-undefined.md`.
 
@@ -37,6 +38,9 @@ An occupied seat with no display name is rendered as `Seat N`. Empty seats have
   gets `viewerSeat: null` and does not create an identity.
 - `POST /api/rooms/{id}/join`: seat the current identity, or return the existing
   seat. A full room or a started room returns 409.
+
+`POST /api/rooms/{id}/start`, `GET /api/rooms/{id}/game`, and
+`POST /api/rooms/{id}/move` are described in [game-api.md](game-api.md).
 
 The room response contains `id`, `state`, four `seats` (`number`, `occupied`,
 `displayName`), `creatorSeat`, `viewerSeat`, `canStart`, and `shareURL`.

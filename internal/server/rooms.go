@@ -68,6 +68,24 @@ func (s *Server) handleRoom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.joinRoom(w, r, parts[0])
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "start":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, "POST")
+			return
+		}
+		s.startGame(w, r, parts[0])
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "game":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, "GET")
+			return
+		}
+		s.getGame(w, r, parts[0])
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "move":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, "POST")
+			return
+		}
+		s.moveGame(w, r, parts[0])
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	}
