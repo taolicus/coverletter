@@ -110,33 +110,18 @@ async function fillMoveOptions(page) {
   }
 }
 
-async function playTurn(page, debug = false) {
+async function playTurn(page) {
   const before = await gameState(page);
   assert.ok(before && before.status === 'Your turn', 'playTurn requires the active page');
-  let started = Date.now();
   await choosePlayableCard(page);
-  if (debug) {
-    console.log(`e2e: choose ${Date.now() - started}ms`);
-  }
-  started = Date.now();
   await fillMoveOptions(page);
-  if (debug) {
-    console.log(`e2e: fill ${Date.now() - started}ms`);
-  }
-  started = Date.now();
-  await page.locator('#play-card').click({ noWaitAfter: true });
-  if (debug) {
-    console.log(`e2e: click ${Date.now() - started}ms`);
-  }
-  started = Date.now();
+  await page.locator('#play-card').click();
   await waitUntil(async () => {
     const next = await gameState(page);
     return next && next.version !== before.version;
   }, 12000, 50);
-  if (debug) {
-    console.log(`e2e: version ${Date.now() - started}ms`);
-  }
-  const error = await page.locator('#move-error').textContent().catch(() => null);
+  const errorLocator = page.locator('#move-error');
+  const error = (await errorLocator.count()) ? await errorLocator.textContent() : null;
   assert.equal(error, null, `move failed: ${error}`);
 }
 
@@ -255,7 +240,7 @@ async function main() {
     assert.equal(direct.status(), 200, await direct.text());
 
     await fillMoveOptions(initial.page);
-    await initial.page.locator('#play-card').click({ noWaitAfter: true });
+    await initial.page.locator('#play-card').click();
     await initial.page.locator('#move-error').waitFor({ timeout: 10000 });
     const staleError = await initial.page.locator('#move-error').textContent();
     assert.match(staleError, /board changed|refreshed/i);
@@ -305,27 +290,15 @@ async function main() {
 
     let turns = 0;
     for (; turns < MAX_TURNS; turns++) {
-      const waitStarted = Date.now();
       const turn = await waitForTurnOrEnd(pages);
-      if (turns < 3) {
-        console.log(`e2e: turn ${turns + 1} wait ${Date.now() - waitStarted}ms`);
-      }
       if (turn.state.phase === 'match_over') {
         break;
       }
       if (turns % 10 === 0) {
         console.log(`e2e: playing turn ${turns + 1}`);
       }
-      const moveStarted = Date.now();
-      await playTurn(turn.page, turns < 3);
-      if (turns < 3) {
-        console.log(`e2e: turn ${turns + 1} move ${Date.now() - moveStarted}ms`);
-      }
-      const syncStarted = Date.now();
+      await playTurn(turn.page);
       await syncPages(pages.filter((page) => page !== turn.page));
-      if (turns < 3) {
-        console.log(`e2e: turn ${turns + 1} sync ${Date.now() - syncStarted}ms`);
-      }
     }
     assert.ok(turns < MAX_TURNS, `match did not finish within ${MAX_TURNS} turns`);
 
