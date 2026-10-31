@@ -110,16 +110,32 @@ async function fillMoveOptions(page) {
   }
 }
 
-async function playTurn(page) {
+async function playTurn(page, debug = false) {
   const before = await gameState(page);
   assert.ok(before && before.status === 'Your turn', 'playTurn requires the active page');
+  let started = Date.now();
   await choosePlayableCard(page);
+  if (debug) {
+    console.log(`e2e: choose ${Date.now() - started}ms`);
+  }
+  started = Date.now();
   await fillMoveOptions(page);
+  if (debug) {
+    console.log(`e2e: fill ${Date.now() - started}ms`);
+  }
+  started = Date.now();
   await page.locator('#play-card').click({ noWaitAfter: true });
+  if (debug) {
+    console.log(`e2e: click ${Date.now() - started}ms`);
+  }
+  started = Date.now();
   await waitUntil(async () => {
     const next = await gameState(page);
     return next && next.version !== before.version;
   }, 12000, 50);
+  if (debug) {
+    console.log(`e2e: version ${Date.now() - started}ms`);
+  }
   const error = await page.locator('#move-error').textContent().catch(() => null);
   assert.equal(error, null, `move failed: ${error}`);
 }
@@ -301,7 +317,7 @@ async function main() {
         console.log(`e2e: playing turn ${turns + 1}`);
       }
       const moveStarted = Date.now();
-      await playTurn(turn.page);
+      await playTurn(turn.page, turns < 3);
       if (turns < 3) {
         console.log(`e2e: turn ${turns + 1} move ${Date.now() - moveStarted}ms`);
       }
