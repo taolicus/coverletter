@@ -1606,7 +1606,7 @@ function handPanel(game) {
 
   let content;
   if (!hand.length) {
-    content = h('p', { class: 'hint' }, 'No cards left this round.');
+    content = [h('p', { class: 'hint' }, 'No cards left this round.')];
   } else if (state.canMove && !over) {
     content = [
       forced

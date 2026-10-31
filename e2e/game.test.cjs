@@ -297,6 +297,9 @@ async function main() {
       if (turn.state.phase === 'match_over') {
         break;
       }
+      if (turns % 10 === 0) {
+        console.log(`e2e: playing turn ${turns + 1}`);
+      }
       await playTurn(turn.page);
       await nudgeAll(pages.filter((page) => page !== turn.page));
     }
