@@ -1,8 +1,8 @@
 # Deployment
 
-Production is live at <https://coverletter.pifia.net/>. The repository's current
-frontend is the lobby described in [lobby](lobby.md); the deployed instance
-receives it on the next deploy.
+Production is live at <https://coverletter.pifia.net/>. The deployed frontend is
+the game interface described in [game-interface](game-interface.md), on top of
+the lobby in [lobby](lobby.md).
 
 ## Host
 
@@ -56,21 +56,27 @@ CI does not deploy.
 
 `deploy.sh` cross-compiles for linux/amd64
 (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`, so it works from the
-android/arm64 dev device), creates the remote directory if needed,
-copies the binary, and replaces it by rename (never writing a running
-executable in place).
+android/arm64 dev device), creates the remote directory if needed, and uploads
+the binary with `rsync` (compressed, checksummed, 60-second I/O timeout) to
+`coverletter.new`. It replaces the binary by rename so a running executable is
+never written in place. It then restarts `coverletter.service`, waits up to 15
+seconds for the unit to become active, and retries the public URL for up to 10
+seconds.
 
 ```
 sh deploy.sh
 ```
 
+The remote directory is owned by `dev:dev` so the service can create its SQLite
+database. The public check expects HTTP 200 from
+<https://coverletter.pifia.net/>. If the restart fails, the script prints
+`systemctl status`; if the URL returns another status, it prints the status and
+the first lines of the response body. Either failure exits nonzero.
+
 The script is POSIX `sh`. On the dev device the repository sits on a
 filesystem without the executable bit, so use `sh deploy.sh` there.
 
 Overridable: `DEPLOY_HOST` (default `tao`), `DEPLOY_DIR` (default
-`/home/dev/coverletter`).
-
-The script does not restart `coverletter.service` or check the public URL,
-so a deploy leaves the old process running until the service is restarted
-by hand. Automating the restart and the post-deploy check is tracked in
-`tasks/open/restart-and-verify-deployment.md`.
+`/home/dev/coverletter`), `DEPLOY_OWNER` (default `dev:dev`), and `DEPLOY_URL`
+(default `https://coverletter.pifia.net/`). The database survives because
+deployment replaces only the binary.
