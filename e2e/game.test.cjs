@@ -65,14 +65,17 @@ async function waitForTurnOrEnd(pages, timeout = 12000) {
   throw new Error(`timed out waiting for a turn or the end: ${JSON.stringify(states)}`);
 }
 
-async function nudge(page) {
-  await page.evaluate(() => {
-    document.dispatchEvent(new Event('visibilitychange'));
+// The test already exercises the four-second poll and the visibility stop
+// separately. For the long match loop, refresh remote boards directly instead
+// of waiting a poll interval after every one of dozens of moves.
+async function syncPage(page) {
+  await page.evaluate(async () => {
+    await refreshCurrent({ quiet: true, force: true });
   });
 }
 
-async function nudgeAll(pages) {
-  await Promise.all(pages.map((page) => nudge(page)));
+async function syncPages(pages) {
+  await Promise.all(pages.map((page) => syncPage(page)));
 }
 
 async function choosePlayableCard(page) {
@@ -103,25 +106,16 @@ async function fillMoveOptions(page) {
   }
 }
 
-async function waitForVersion(page, version, timeout = 10000) {
-  await page.waitForFunction(
-    (value) => document.querySelector('#game-view')?.dataset.version === String(value),
-    version,
-    { timeout },
-  );
-}
-
 async function playTurn(page) {
   const before = await gameState(page);
   assert.ok(before && before.status === 'Your turn', 'playTurn requires the active page');
   await choosePlayableCard(page);
   await fillMoveOptions(page);
   await page.locator('#play-card').click();
-  await page.waitForFunction(
-    (version) => document.querySelector('#game-view')?.dataset.version !== String(version),
-    before.version,
-    { timeout: 12000 },
-  );
+  await waitUntil(async () => {
+    const next = await gameState(page);
+    return next && next.version !== before.version;
+  }, 12000, 50);
   const error = await page.locator('#move-error').textContent().catch(() => null);
   assert.equal(error, null, `move failed: ${error}`);
 }
@@ -247,24 +241,22 @@ async function main() {
     assert.match(staleError, /board changed|refreshed/i);
 
     await initial.page.unroute('**/api/rooms/*/game');
-    await nudge(initial.page);
-    await initial.page.waitForFunction(
-      (version) => document.querySelector('#game-view')?.dataset.version !== String(version),
-      beforeStale.data.game.version,
-      { timeout: 10000 },
-    );
+    await syncPage(initial.page);
+    await waitUntil(async () => {
+      const next = await gameState(initial.page);
+      return next && next.version !== beforeStale.data.game.version;
+    }, 10000, 50);
 
-    await nudgeAll(pages);
+    await syncPages(pages);
     const pollingTurn = await waitForTurnOrEnd(pages);
     const pollingOther = pollingTurn.page === ada.page ? grace.page : ada.page;
     const pollingHandled = playTurn(pollingTurn.page);
     await pollingHandled;
     const activeVersion = (await gameState(pollingTurn.page)).version;
-    await pollingOther.waitForFunction(
-      (version) => document.querySelector('#game-view')?.dataset.version === String(version),
-      activeVersion,
-      { timeout: 9000 },
-    );
+    await waitUntil(async () => {
+      const next = await gameState(pollingOther);
+      return next && next.version === activeVersion;
+    }, 9000, 100);
 
     const requests = [];
     const counter = async (route) => {
@@ -301,11 +293,11 @@ async function main() {
         console.log(`e2e: playing turn ${turns + 1}`);
       }
       await playTurn(turn.page);
-      await nudgeAll(pages.filter((page) => page !== turn.page));
+      await syncPages(pages.filter((page) => page !== turn.page));
     }
     assert.ok(turns < MAX_TURNS, `match did not finish within ${MAX_TURNS} turns`);
 
-    await nudgeAll(pages);
+    await syncPages(pages);
     await Promise.all(
       pages.map((page) => page.locator('#match-result').waitFor({ timeout: 12000 })),
     );
