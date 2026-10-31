@@ -42,6 +42,15 @@ Let's Encrypt certificates under
 - `/events` disables proxy buffering and caching for streaming responses.
 - Read and send timeouts are 3600 seconds for long-lived connections.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request.
+On an ubuntu/amd64 runner it checks `gofmt`, runs `go vet ./...`, `go test
+./...`, `go test -race ./...`, `sh workflow/lint.sh`, and the
+`CGO_ENABLED=0 GOOS=linux GOARCH=amd64` deployment build. The race test runs
+there because the android/arm64 dev device does not support the race detector.
+CI does not deploy.
+
 ## Deploying
 
 `deploy.sh` cross-compiles for linux/amd64

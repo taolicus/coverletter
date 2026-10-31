@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed for:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race test
+        run: go test -race ./...
+
+      - name: Workflow lint
+        run: sh workflow/lint.sh
+
+      - name: Deployment build
+        run: >
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+          go build -trimpath -ldflags="-s -w" -o /tmp/coverletter ./cmd/server
