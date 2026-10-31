@@ -134,7 +134,7 @@ done <"$TMP.items"
 
 find . -name '*.md' \
     -not -path './.git/*' \
-    -not -path './node_modules/*' \
+    -not -path '*/node_modules/*' \
     -not -path './vendor/*' \
     -not -path './dist/*' >"$TMP.md" 2>/dev/null
 

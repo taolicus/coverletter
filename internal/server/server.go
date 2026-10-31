@@ -54,9 +54,22 @@ func New(config Config) http.Handler {
 		config.RateWindow = defaultRateWindow
 	}
 
-	index, err := fs.ReadFile(web.Files, "index.html")
-	if err != nil {
-		panic(err)
+	readAsset := func(name string) []byte {
+		data, err := fs.ReadFile(web.Files, name)
+		if err != nil {
+			panic(err)
+		}
+		return data
+	}
+
+	index := readAsset("index.html")
+	assets := []struct {
+		path        string
+		contentType string
+		data        []byte
+	}{
+		{path: "/style.css", contentType: "text/css; charset=utf-8", data: readAsset("style.css")},
+		{path: "/app.js", contentType: "text/javascript; charset=utf-8", data: readAsset("app.js")},
 	}
 
 	s := &Server{
@@ -69,12 +82,29 @@ func New(config Config) http.Handler {
 		rateWindow:    config.RateWindow,
 	}
 	mux := http.NewServeMux()
+	for _, asset := range assets {
+		asset := asset
+		mux.HandleFunc(asset.path, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				methodNotAllowed(w, "GET, HEAD")
+				return
+			}
+			w.Header().Set("Content-Type", asset.contentType)
+			w.Header().Set("Cache-Control", "no-cache")
+			if r.Method == http.MethodHead {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			_, _ = w.Write(asset.data)
+		})
+	}
 	mux.HandleFunc("/api/player", s.handlePlayer)
 	mux.HandleFunc("/api/rooms", s.handleRooms)
 	mux.HandleFunc("/api/rooms/", s.handleRoom)
 	mux.HandleFunc("/api/", s.handleAPINotFound)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(index)
 	})
 	return mux

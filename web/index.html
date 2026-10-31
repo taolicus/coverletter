@@ -3,28 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coming up...</title>
-<style>
-html, body {
-  margin: 0;
-  height: 100%;
-  background: #000;
-  color: #fff;
-}
-body {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-p {
-  margin: 0;
-}
-</style>
+<meta name="theme-color" content="#f4eddf">
+<title>Cover Letter</title>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<p>Coming up...</p>
+<header class="site-header">
+  <a class="brand" href="/">Cover Letter</a>
+  <p class="tagline">A game of getting noticed.</p>
+</header>
+
+<main id="app" class="app">
+  <p class="loading" role="status">Loading…</p>
+</main>
+
+<footer class="site-footer">
+  <p>No account needed. Your browser remembers you.</p>
+</footer>
+
+<noscript>
+  <p class="noscript">Cover Letter needs JavaScript to run.</p>
+</noscript>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="/app.js" defer></script>
 </body>
 </html>

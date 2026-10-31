@@ -5,5 +5,5 @@ import "embed"
 
 // Files is the set of browser assets served by the application.
 //
-//go:embed index.html
+//go:embed index.html style.css app.js
 var Files embed.FS

@@ -1,7 +1,8 @@
 # Deployment
 
-Production is live at <https://coverletter.pifia.net/>. It currently serves
-the placeholder described in [coming-up-page](coming-up-page.md).
+Production is live at <https://coverletter.pifia.net/>. The repository's current
+frontend is the lobby described in [lobby](lobby.md); the deployed instance
+receives it on the next deploy.
 
 ## Host
 
