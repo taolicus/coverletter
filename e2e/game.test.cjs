@@ -79,6 +79,10 @@ async function syncPages(pages) {
 }
 
 async function choosePlayableCard(page) {
+  // Playwright checks click stability across animation frames. Bring the
+  // player being acted on to the foreground so a background tab cannot turn
+  // every click into a long wait.
+  await page.bringToFront();
   const cards = await page
     .locator('#your-hand button.hand-card:not([disabled])')
     .evaluateAll((buttons) => buttons.map((button) => Number(button.dataset.card)));
