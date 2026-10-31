@@ -234,7 +234,7 @@ async function main() {
       }
     });
 
-    const direct = await initial.context.request.post(
+    const direct = await initial.page.context().request.post(
       `${baseURL}/api/rooms/${roomID}/move`,
       { data: directMove },
     );
